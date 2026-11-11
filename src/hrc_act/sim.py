@@ -14,10 +14,10 @@ XML = """
     <geom name="floor" type="plane" size="2 2 0.1" rgba=".82 .84 .88 1"/>
     <geom name="table" type="box" pos="0.38 0 0.32" size=".55 .45 .025" rgba=".62 .5 .4 1"/>
     <body name="arm_base" pos="0 0 0.39">
-      <joint name="shoulder" type="hinge" axis="0 1 0" range="-2.5 2.5" limited="true" damping="2"/>
+      <joint name="shoulder" type="hinge" axis="0 -1 0" range="-2.5 2.5" limited="true" damping="2"/>
       <geom type="capsule" fromto="0 0 0 .35 0 0" size=".025" rgba=".25 .45 .7 1" mass=".8"/>
       <body pos=".35 0 0">
-        <joint name="elbow" type="hinge" axis="0 1 0" range="-2.6 2.6" limited="true" damping="1"/>
+        <joint name="elbow" type="hinge" axis="0 -1 0" range="-2.6 2.6" limited="true" damping="1"/>
         <geom type="capsule" fromto="0 0 0 .30 0 0" size=".021" rgba=".2 .3 .65 1" mass=".5"/>
         <site name="ee" pos=".30 0 0" size=".025" rgba="0 1 0 1"/>
       </body>
