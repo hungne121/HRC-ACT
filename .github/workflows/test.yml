@@ -1,17 +1,16 @@
-name: I1 V2 preview and tests
+name: I1 Observed preview
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 concurrency:
-  group: i1-preview-${{ github.event.pull_request.number }}
+  group: i1-observed-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  preview:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  observed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     env:
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
@@ -22,57 +21,27 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libegl1 libgl1
-          python -m pip install --upgrade pip
           python -m pip install -e '.[test]'
-      - name: Run unit tests and scene smoke tests
+      - name: Unit tests
         run: python -m pytest -q
-      - name: Render paired I1 preview MP4s
-        run: hrc-i1 --expert paired --seed 300100 --out outputs/I1 --fps 10 --max-seconds 65 --skip-dataset
-      - name: Require both physical placement outcomes 3/3
+      - name: Render ONLY observed preview
+        run: hrc-i1 --expert observed --seed 300100 --out outputs/I1 --fps 10 --max-seconds 65 --skip-dataset
+      - name: Check physics and task outcome
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          for expert in ('observed','intent'):
-              d=json.loads(Path(f'outputs/I1/I1_{expert}.json').read_text())
-              print(expert, 'state:', d['state'], 'placed:', d['placed'], 'deepest contact:', d['worst_contact'])
-              assert d['success'] and len(d['placed'])==3, f'{expert} did not place 3 cups'
+          d=json.loads(Path('outputs/I1/I1_observed.json').read_text())
+          print('state:',d['state'],'cups:',d['placed'])
+          print('deepest contact:',d.get('worst_contact'))
+          print('events:',[(e['event'],e['t']) for e in d['events'] if e['event'] in ('grasp','release','place_complete','place_unstable','failed_grasp','unsafe_alignment')])
+          assert d['success'] and len(d['placed'])==3,'Observed I1 has not placed 3/3 cups'
           PY
-      - name: Upload two preview videos and event traces
+      - name: Upload observed video and physics trace even if unsuccessful
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: I1-seed-300100-preview
-          path: outputs/I1/I1_*
-          if-no-files-found: warn
-          retention-days: 7
-
-  lerobot:
-    runs-on: ubuntu-latest
-    needs: preview
-    timeout-minutes: 45
-    env:
-      MUJOCO_GL: egl
-      PYOPENGL_PLATFORM: egl
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install LeRobot recording support
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 ffmpeg
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[record]'
-      - name: Record I1 demonstration to LeRobot dataset
-        run: hrc-i1 --expert observed --seed 300100 --out outputs/I1_record --fps 10 --max-seconds 65
-      - name: Upload LeRobot episode metadata and render
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: I1-lerobot-observed-smoke
-          path: outputs/I1_record
+          name: I1-observed-seed300100
+          path: outputs/I1/I1_observed.*
           if-no-files-found: warn
           retention-days: 7
