@@ -76,6 +76,48 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
+    # Intent is a short-horizon receding-target follower, not a distant
+    # prepositioning task.  Every decision uses the CURRENT ManiCast
+    # prediction; the next 20Hz tick can revise it. Observed is untouched.
+    original_standoff = I1Expert._standoff_point
+    original_toward = I1Expert._toward
+
+    def dynamic_intent_target(self):
+        if expert != "early":
+            return original_standoff(self)
+        destination = self._destination()
+        if destination is None:
+            return np.r_[self.mapper.setpoint[:2], self.travel]
+        # Forecast is already transformed from wrist to coaster XY by I1Expert.
+        # No 20cm offset. The planner only works at safe carry height until
+        # the coaster is placed and the human has cleared.
+        xy = np.asarray(destination,float)[:2] + self.tcp_obj_offset[:2]
+        # Gentle first-order smoothing of noisy forecast goals, not of the
+        # actual robot motor speed. Do not chase sudden wrist noise with
+        # a full-speed reversal. 0.35 at 20 Hz (~0.12s response).
+        if getattr(self,"_follow_xy",None) is None:
+            self._follow_xy = xy.copy()
+        else:
+            self._follow_xy += 0.35 * (xy - self._follow_xy)
+        return np.r_[self._follow_xy,self.travel]
+
+    def continuous_intent_follow(self,target):
+        if expert != "early" or self.stage != "approach_spot":
+            return original_toward(self,target)
+        from intent_policy.sim.restricted_action import RestrictedAction as A
+        goal=np.asarray(target,float)
+        delta=goal - self.mapper.setpoint
+        if float(np.linalg.norm(delta)) <= 0.005:
+            return None
+        # The mapper performs Cartesian straight-line motion in all axes
+        # with acceleration/velocity and joint velocity limits. No XYZ-axis
+        # stepping and no fixed waypoint around the intended placement.
+        self.mapper.next_goal = goal
+        self.mapper.next_speed = None
+        return A.MOVE_FORWARD
+
+    I1Expert._standoff_point = dynamic_intent_target
+    I1Expert._toward = continuous_intent_follow
     # The restricted action interface moves arm OR gripper, never both.
     # Convert the original expert's discrete plan into a *continuous 7D*
     # target so the gripper can change aperture simultaneously with TCP travel.
@@ -280,6 +322,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "gripper_grasp_clear_m":grasp_clear_m,
              "gripper_rest_open_m":full_open_m,
              "gripper_simultaneous_arm_motion":True,
+             "intent_approach_mode":"20Hz receding Cartesian pursuit, no standoff, target filter 0.35" if expert=="early" else "original observed",
              "gripper_samples":gripper_stage_samples,
              "demonstration_npz":demo_file.name if demo_file else None,
              "demonstration_format":"observation_state[T,10], observation_images_high[T,96,128,3], action[T,7] (joint targets), expert_stage[T] diagnostic only",
