@@ -20,11 +20,13 @@ from intent_policy.scenarios.scenario_registry import make_scenario
 from intent_policy.sim.restricted_action import RestrictedActionConfig
 
 
-def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', tempo: str = 'balanced'):
+def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', tempo: str = 'balanced', robot_profile: str = 'baseline'):
     # Film cadence is 20 physical decision samples/sec. A playback speedup
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
     out.mkdir(parents=True,exist_ok=True)
+    if robot_profile not in ("baseline", "optimized"):
+        raise ValueError("robot profile must be baseline or optimized")
     if expert not in ("observed", "early"):
         raise ValueError("expert must be observed or early")
     # Public Cornell ManiCast checkpoint, not the absent Work fine-tune.
@@ -52,6 +54,17 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         )
 
     def act_after_reach_cue(self):
+        # Simulation-only controlled timing ablation. On robot-only prep
+        # moves, speed up to 0.50 m/s iff human hand is > 0.40m from TCP.
+        # In the shared workspace keep exactly the original 0.39m/s cap.
+        # This heuristic is NOT a safety certification or speed approval.
+        if robot_profile == "optimized":
+            clearance = float(np.linalg.norm(self.sc.human.pos - self.sc.tcp()))
+            prep = self.stage in ("open", "above_grasp",
+                "settle_above_grasp", "descend", "settle_before_grasp",
+                "close", "settle_grasp", "lift")
+            self.mapper.cfg.continuous["tcp_speed"] = (
+                0.50 if prep and clearance > 0.40 else 0.39)
         if not reached_for_this_coaster(self):
             return int(RestrictedAction.HOLD)
         return original_act(self)
@@ -83,7 +96,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     event_times={}
     hand_speeds=[]
     last_hand=None
-    video=out/f"I1_{expert}_work.mp4"
+    video=out/f"I1_{expert}_{robot_profile}_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
                             macro_block_size=1,quality=8) as writer:
@@ -124,6 +137,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         assert all(carried_frames.get(k,0)>1 for k in required), "Human did not carry all coasters"
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
+             "robot_profile":robot_profile,
+             "robot_speed_rule":"0.50m/s only robot prep and hand-TCP >0.40m; otherwise 0.39m/s" if robot_profile=="optimized" else "original 0.39m/s",
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
              "human_hand_speed_p95_mps":round(float(np.percentile(hand_speeds,95)),3) if hand_speeds else None,
              "human_hand_speed_p50_mps":round(float(np.percentile(hand_speeds,50)),3) if hand_speeds else None,
@@ -142,9 +157,9 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "human_carried_frames":carried_frames,
              "human_active_welds":sorted(weld_seen),
              "recorded_cadence_hz":20,
-             "video":f"I1_{expert}_work.mp4",
+             "video":f"I1_{expert}_{robot_profile}_work.mp4",
              "note":"Playback speed does not change simulated physics or training actions"}
-    (out/f"I1_{expert}_work.json").write_text(json.dumps(summary,indent=2,default=str))
+    (out/f"I1_{expert}_{robot_profile}_work.json").write_text(json.dumps(summary,indent=2,default=str))
     print(json.dumps(summary,indent=2,default=str),flush=True)
     if not result["success"]:
         raise SystemExit("Observed I1 failed; see JSON and video")
@@ -156,8 +171,9 @@ def main():
     p.add_argument("--speedup",type=float,default=1.0)
     p.add_argument("--expert",choices=["observed","early"],default="observed")
     p.add_argument("--tempo",choices=["original","balanced"],default="balanced")
+    p.add_argument("--robot-profile",choices=["baseline","optimized"],default="baseline")
     a=p.parse_args()
     if not (1<=a.speedup<=1.5):raise ValueError("speedup must be 1..1.5")
-    run(a.seed,a.out,a.speedup,a.expert,a.tempo)
+    run(a.seed,a.out,a.speedup,a.expert,a.tempo,a.robot_profile)
 
 if __name__=="__main__":main()
