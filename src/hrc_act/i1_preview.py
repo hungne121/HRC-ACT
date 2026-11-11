@@ -49,6 +49,7 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
     trace=[]
     safety_overrides=0
     max_penetration=0.0
+    worst_contact=None
     state="above_source"
     turn=0
     current_cup=0
@@ -166,7 +167,11 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                             transition("above_source",t)
                     # collision depth is recorded; only target release gate uses a strict hold.
                     for c in scene.data.contact:
-                        max_penetration=max(max_penetration,max(0.,-float(c.dist)))
+                        depth=max(0.,-float(c.dist))
+                        if depth>max_penetration:
+                            max_penetration=depth
+                            worst_contact={"t":round(t,3),"geom1":scene.model.geom(c.geom1).name,
+                                           "geom2":scene.model.geom(c.geom2).name,"depth_m":depth}
                     scene.step(q)
 
                 renderer.update_scene(scene.data,camera="overview")
@@ -204,6 +209,7 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
         "coaster_targets":scene.clip.targets.tolist(), # evaluator-only
         "events":events,"state":state,"success":success,"placed":placed,
         "max_contact_penetration_m":max_penetration,
+        "worst_contact":worst_contact,
         "safety_override_count":safety_overrides,
         "manicast_integrated":False,
         "robot_action_trace":trace,
