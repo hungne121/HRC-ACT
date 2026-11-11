@@ -25,6 +25,25 @@ def run(seed: int, out: Path, speedup: float = 1.0):
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
     out.mkdir(parents=True,exist_ok=True)
+    # Preserve the Work robot, scene, and expert. Only adjust the human's
+    # hand timing: lower -> release coaster -> WAIT at the placement pose ->
+    # withdraw. The coaster settles through MuJoCo contact while hand waits.
+    from intent_policy.scenarios.i1_coaster_sequence import SequentialCoasterHuman
+    from intent_policy.sim.scripted_human import Gesture
+    original_placing = SequentialCoasterHuman.placing
+
+    def placing_then_withdraw(self):
+        gestures = original_placing(self)
+        releases = [i for i, g in enumerate(gestures)
+                    if g.kind == "call"
+                    and getattr(g.fn, "__name__", "") == "_put"]
+        if len(releases) != 1:
+            raise RuntimeError("Expected exactly one human coaster release")
+        gestures.insert(releases[0] + 1, Gesture(
+            "sleep", "coaster_settle_before_withdraw", duration=0.35))
+        return gestures
+
+    SequentialCoasterHuman.placing = placing_then_withdraw
     scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":"observed"},
         # Generated HY-Motion clips were not checked into the old repository.
         # Use its own deterministic minimum-jerk scripted human instead.
@@ -57,6 +76,7 @@ def run(seed: int, out: Path, speedup: float = 1.0):
              "physics_duration_s":result.get("duration_s"),
              "preview_playback_factor":speedup,
              "preview_frame_count":len(observed),
+             "human_sequence":"lower coaster, release, hold 0.35s, withdraw",
              "recorded_cadence_hz":20,
              "video":"I1_observed_work.mp4",
              "note":"Playback speed does not change simulated physics or training actions"}
