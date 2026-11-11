@@ -25,7 +25,10 @@ def run(seed: int, out: Path, speedup: float = 1.0):
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
     out.mkdir(parents=True,exist_ok=True)
-    scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":"observed"}})
+    scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":"observed"},
+        # Generated HY-Motion clips were not checked into the old repository.
+        # Use its own deterministic minimum-jerk scripted human instead.
+        "human_behavior":{"motion_bank":None}})
     controller=RestrictedActionConfig.load("configs/controller/continuous_motion.yaml")
     obs_cfg=ObservationConfig(cameras=("high",),width=640,height=480)
     observed=[]
