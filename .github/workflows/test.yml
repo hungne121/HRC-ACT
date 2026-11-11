@@ -77,6 +77,9 @@ jobs:
           git add previews/
           if ! git diff --cached --quiet; then
             git commit -m "chore(previews): update latest I1 videos [skip ci]"
+            # Rebase onto the latest PR branch: checkout starts detached at the trigger commit.
+            git fetch origin "${PR_HEAD_REF}"
+            git rebase FETCH_HEAD
             git push origin "HEAD:refs/heads/${PR_HEAD_REF}"
           fi
       - name: Upload actual Observed preview, pass or fail
