@@ -159,6 +159,11 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     hand_speeds=[]
     last_hand=None
     gripper_stage_samples=[]
+    demonstration_states=[]
+    demonstration_images=[]
+    demonstration_actions=[]
+    demonstration_stages=[]
+    demonstration_times=[]
     video=out/f"I1_{expert}_{robot_profile}_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
@@ -190,6 +195,14 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
                     if s.env.data.eq_active[s.weld_id[key]]:
                         weld_seen.add(key)
             frame=np.asarray(obs["observation.images.high"],dtype=np.uint8)
+            # Genuine ACT-format supervised targets: causally observed RGB and
+            # proprioception paired with expert's executed 7D joint command.
+            # The gripper opening target is the 7th action component.
+            demonstration_states.append(np.asarray(obs["observation.state"],dtype=np.float32).copy())
+            demonstration_images.append(frame[::5,::5].copy())  # 640x480 -> 128x96
+            demonstration_actions.append(np.asarray(target,dtype=np.float32).copy())
+            demonstration_stages.append(stage or "unknown")
+            demonstration_times.append(float(s.time))
             writer.append_data(frame)
             observed.append(float(s.time))
         try:
@@ -202,6 +215,20 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         required={item["coaster"] for item in scene.rounds}
         assert required <= weld_seen, "No verified human weld: " + repr(required - weld_seen)
         assert all(carried_frames.get(k,0)>1 for k in required), "Human did not carry all coasters"
+    if result["success"]:
+        # In MuJoCo's action interface, idx 6 is the gripper target that ACT
+        # learns as a continuous joint target; do not store the stage as input.
+        demo_file=out/f"I1_{expert}_{robot_profile}_demo.npz"
+        np.savez_compressed(
+            demo_file,
+            observation_state=np.asarray(demonstration_states,dtype=np.float32),
+            observation_images_high=np.asarray(demonstration_images,dtype=np.uint8),
+            action=np.asarray(demonstration_actions,dtype=np.float32),
+            expert_stage=np.asarray(demonstration_stages,dtype="U48"),
+            timestamp_s=np.asarray(demonstration_times,dtype=np.float64),
+        )
+    else:
+        demo_file=None
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
              "robot_profile":robot_profile,
@@ -209,6 +236,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "gripper_work_open_m":work_open_m,
              "gripper_rest_open_m":home_open_m,
              "gripper_samples":gripper_stage_samples,
+             "demonstration_npz":demo_file.name if demo_file else None,
+             "demonstration_format":"observation_state[T,10], observation_images_high[T,96,128,3], action[T,7] (joint targets), expert_stage[T] diagnostic only",
              "robot_speed_rule":"0.50m/s only robot prep and hand-TCP >0.40m; otherwise 0.39m/s" if robot_profile=="optimized" else "original 0.39m/s",
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
              "coaster_row":[{"slot":x,"xy_m":[v,y_row]} for x,v in zip(["left","middle","right"],x_slots)],
