@@ -76,6 +76,30 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
+    # Fixed, evenly spaced coaster targets (one straight row). The per-seed
+    # permutation assigns each incoming coaster to left/centre/right once.
+    # The expert NEVER reads this mapping; it still uses visible coaster
+    # positions (Observed) or forecasts (Intent). This changes scenario
+    # variation only, not Work's robot or MJCF physics.
+    from intent_policy.scenarios.i1_coaster_sequence import CoasterSequenceTask
+    original_sample = CoasterSequenceTask.sample_episode_variation
+    x_slots = [0.180, 0.295, 0.410]
+    y_row = -0.130
+
+    def sample_row_variation(self, episode_seed, spec=None):
+        variation = original_sample(self, episode_seed, spec)
+        rng = np.random.default_rng([int(episode_seed), 811])
+        order = rng.permutation(3)
+        for i, slot in enumerate(order):
+            variation["coaster_sequence"][i]["destination_xy"] = [
+                x_slots[int(slot)], y_row
+            ]
+            variation["coaster_sequence"][i]["display_slot"] = (
+                "left", "middle", "right"
+            )[int(slot)]
+        return variation
+
+    CoasterSequenceTask.sample_episode_variation = sample_row_variation
     # Same sampled human phase timings for both policies, unchanged robot limits.
     tempo_cfg = {
         "original": {},
@@ -140,6 +164,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "robot_profile":robot_profile,
              "robot_speed_rule":"0.50m/s only robot prep and hand-TCP >0.40m; otherwise 0.39m/s" if robot_profile=="optimized" else "original 0.39m/s",
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
+             "coaster_row":[{"slot":x,"xy_m":[v,y_row]} for x,v in zip(["left","middle","right"],x_slots)],
+             "placement_order":[{"coaster":v["coaster"],"slot":v["display_slot"],"xy_m":v["destination_xy"]} for v in scene.rounds],
              "human_hand_speed_p95_mps":round(float(np.percentile(hand_speeds,95)),3) if hand_speeds else None,
              "human_hand_speed_p50_mps":round(float(np.percentile(hand_speeds,50)),3) if hand_speeds else None,
              "stage_timeline":stage_timeline,"event_times":event_times,
