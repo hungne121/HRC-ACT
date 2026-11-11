@@ -20,7 +20,7 @@ from intent_policy.scenarios.scenario_registry import make_scenario
 from intent_policy.sim.restricted_action import RestrictedActionConfig
 
 
-def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', tempo: str = 'balanced', robot_profile: str = 'baseline'):
+def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', tempo: str = 'balanced', robot_profile: str = 'baseline', layout: str = 'row'):
     # Film cadence is 20 physical decision samples/sec. A playback speedup
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
@@ -118,11 +118,13 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     # variation only, not Work's robot or MJCF physics.
     from intent_policy.scenarios.i1_coaster_sequence import CoasterSequenceTask
     original_sample = CoasterSequenceTask.sample_episode_variation
-    x_slots = [0.180, 0.295, 0.410]
+    x_slots = [0.155, 0.295, 0.435]
     y_row = -0.130
 
     def sample_row_variation(self, episode_seed, spec=None):
         variation = original_sample(self, episode_seed, spec)
+        if layout == 'original':
+            return variation
         rng = np.random.default_rng([int(episode_seed), 811])
         order = rng.permutation(3)
         for i, slot in enumerate(order):
@@ -203,13 +205,14 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
              "robot_profile":robot_profile,
+             "coaster_layout":layout,
              "gripper_work_open_m":work_open_m,
              "gripper_rest_open_m":home_open_m,
              "gripper_samples":gripper_stage_samples,
              "robot_speed_rule":"0.50m/s only robot prep and hand-TCP >0.40m; otherwise 0.39m/s" if robot_profile=="optimized" else "original 0.39m/s",
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
              "coaster_row":[{"slot":x,"xy_m":[v,y_row]} for x,v in zip(["left","middle","right"],x_slots)],
-             "placement_order":[{"coaster":v["coaster"],"slot":v["display_slot"],"xy_m":v["destination_xy"]} for v in scene.rounds],
+             "placement_order":[{"coaster":v["coaster"],"slot":v.get("display_slot","free"),"xy_m":v["destination_xy"]} for v in scene.rounds],
              "human_hand_speed_p95_mps":round(float(np.percentile(hand_speeds,95)),3) if hand_speeds else None,
              "human_hand_speed_p50_mps":round(float(np.percentile(hand_speeds,50)),3) if hand_speeds else None,
              "stage_timeline":stage_timeline,"event_times":event_times,
@@ -242,8 +245,9 @@ def main():
     p.add_argument("--expert",choices=["observed","early"],default="observed")
     p.add_argument("--tempo",choices=["original","balanced"],default="balanced")
     p.add_argument("--robot-profile",choices=["baseline","optimized"],default="baseline")
+    p.add_argument("--layout",choices=["original","row"],default="row")
     a=p.parse_args()
     if not (1<=a.speedup<=1.5):raise ValueError("speedup must be 1..1.5")
-    run(a.seed,a.out,a.speedup,a.expert,a.tempo,a.robot_profile)
+    run(a.seed,a.out,a.speedup,a.expert,a.tempo,a.robot_profile,a.layout)
 
 if __name__=="__main__":main()
