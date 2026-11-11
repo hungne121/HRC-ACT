@@ -33,7 +33,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed'):
         original_load = pif.config.load_config
         def released_config(*args, **kwargs):
             cfg = original_load(*args, **kwargs)
-            cfg["v6_expert"]["checkpoint_path"] = None
+            if "v6_expert" in cfg:
+                cfg["v6_expert"]["checkpoint_path"] = None
             return cfg
         pif.config.load_config = released_config
     # Reach cue unlocks preparation and grasp.
