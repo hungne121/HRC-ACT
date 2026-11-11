@@ -121,7 +121,9 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
             stage = self.expert.stage
             command = self.mapper.map(d.action_id)
             target = np.asarray(command.joint_target,dtype=float).copy()
-            if stage == "above_grasp":
+            if stage == "above_grasp" and not reached_for_this_coaster(self.expert):
+                opening = full_open_m if self.expert.sc.sequence_index == 0 else grasp_clear_m
+            elif stage == "above_grasp":
                 obj = self.expert.obj
                 above=np.r_[self.expert.sc.grasp_point(obj)[:2], self.expert.travel]
                 remaining=float(np.linalg.norm(self.expert.sc.tcp() - above))
