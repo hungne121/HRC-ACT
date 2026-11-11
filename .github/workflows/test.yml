@@ -3,6 +3,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
 concurrency:
   group: work-i1-observed-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -48,6 +51,34 @@ jobs:
           xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --layout original --seed 300100 --out ../outputs/i1_original_control --speedup 1.0
           xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0 --layout row
           xvfb-run -a python ../scripts/work_i1_observed.py --expert early --robot-profile optimized --layout row --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+      - name: Publish latest MP4s in repository for one-click viewing
+        if: success()
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          mkdir -p previews
+          cp outputs/work_i1/I1_observed_optimized_work.mp4 previews/I1_Observed.mp4
+          cp outputs/work_i1/I1_early_optimized_work.mp4 previews/I1_Intent.mp4
+          cat > previews/README.md <<'EOF'
+          # I1 — xem video mới nhất
+
+          Chỉ cần lưu trang này vào bookmark. Mỗi lần chạy thành công,
+          hai video sau sẽ được cập nhật tự động, không cần tải ZIP hoặc quay lại ChatGPT.
+
+          - **[Xem Observed](I1_Observed.mp4)**
+          - **[Xem Intent + ManiCast](I1_Intent.mp4)**
+
+          Cả hai được dựng từ scene MuJoCo Work gốc với cùng seed,
+          bố cục ba vị trí trái–giữa–phải và demo điều khiển gripper.
+          Đây là scripted expert demo, chưa phải ACT đã train.
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add previews/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(previews): update latest I1 videos [skip ci]"
+            git push origin "HEAD:refs/heads/${PR_HEAD_REF}"
+          fi
       - name: Upload actual Observed preview, pass or fail
         if: always()
         uses: actions/upload-artifact@v4
