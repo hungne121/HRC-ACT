@@ -20,7 +20,7 @@ from intent_policy.scenarios.scenario_registry import make_scenario
 from intent_policy.sim.restricted_action import RestrictedActionConfig
 
 
-def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed'):
+def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', tempo: str = 'balanced'):
     # Film cadence is 20 physical decision samples/sec. A playback speedup
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
@@ -63,10 +63,16 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed'):
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
+    # Same sampled human phase timings for both policies, unchanged robot limits.
+    tempo_cfg = {
+        "original": {},
+        "balanced": {"take_reach_s": [0.9, 1.2], "carry_s": [1.3, 1.7],
+                     "lower_s": [0.45, 0.65], "speed_scale": [0.9, 1.1]}
+    }[tempo]
     scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":expert},
         # Generated HY-Motion clips were not checked into the old repository.
         # Use its own deterministic minimum-jerk scripted human instead.
-        "human_behavior":{"motion_bank":None}})
+        "human_behavior":{"motion_bank":None, **tempo_cfg}})
     controller=RestrictedActionConfig.load("configs/controller/continuous_motion.yaml")
     obs_cfg=ObservationConfig(cameras=("high",),width=640,height=480)
     observed=[]
@@ -98,6 +104,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed'):
         assert all(carried_frames.get(k,0)>1 for k in required), "Human did not carry all coasters"
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
+             "human_tempo":tempo,"human_tempo_config":tempo_cfg,
              "forecast_source":"Cornell released ManiCast" if expert=="early" else "none",
              "work_source":"hungne121/intent_policy@428e8fcb9d7834eb6e6be98ab72b1ccf9c71ab3a",
              "robot":"UR3e 6-DOF + SusGrip physical fingers",
@@ -125,8 +132,9 @@ def main():
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--speedup",type=float,default=1.0)
     p.add_argument("--expert",choices=["observed","early"],default="observed")
+    p.add_argument("--tempo",choices=["original","balanced"],default="balanced")
     a=p.parse_args()
     if not (1<=a.speedup<=1.5):raise ValueError("speedup must be 1..1.5")
-    run(a.seed,a.out,a.speedup,a.expert)
+    run(a.seed,a.out,a.speedup,a.expert,a.tempo)
 
 if __name__=="__main__":main()
