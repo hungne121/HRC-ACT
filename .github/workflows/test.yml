@@ -45,8 +45,8 @@ jobs:
       - name: Render Observed with original Work UR3e + SusGrip
         working-directory: work
         run: |
-          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --seed 300100 --out ../outputs/work_i1 --speedup 1.0
-          xvfb-run -a python ../scripts/work_i1_observed.py --expert early --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert early --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0
       - name: Upload actual Observed preview, pass or fail
         if: always()
         uses: actions/upload-artifact@v4
