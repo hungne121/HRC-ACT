@@ -50,7 +50,7 @@ def test_scene_loads_and_reproducible_initial():
     assert len(a.cup_ids)==3
     assert len(a.coaster_mocap)==3
     for _ in range(10):
-        a.step(a.data.qpos[:3])
+        a.step(a.data.qpos[:4])
     assert a.data.time>.0
 
 def test_observed_cannot_see_unplaced_coaster_target():
