@@ -24,20 +24,29 @@ jobs:
           ref: 428e8fcb9d7834eb6e6be98ab72b1ccf9c71ab3a
           path: work
           persist-credentials: false
+      - name: Checkout public ManiCast release and pretrained model
+        uses: actions/checkout@v4
+        with:
+          repository: portal-cornell/manicast
+          ref: release
+          path: work/third_party/manicast
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install simulation and video dependencies
         run: |
-          python -m pip install 'numpy>=1.26,<3' 'mujoco==3.3.7' 'scipy>=1.11' 'PyYAML>=6' 'Pillow>=10' 'av>=12' 'imageio[ffmpeg]>=2.34' 'glfw>=2'
+          python -m pip install 'numpy>=1.26,<3' 'mujoco==3.3.7' 'scipy>=1.11' 'PyYAML>=6' 'Pillow>=10' 'av>=12' 'imageio[ffmpeg]>=2.34' 'glfw>=2' 'torch>=2.2' 'einops>=0.7'
       - name: Render Observed with original Work UR3e + SusGrip
         working-directory: work
-        run: xvfb-run -a python ../scripts/work_i1_observed.py --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+        run: |
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert early --seed 300100 --out ../outputs/work_i1 --speedup 1.0
       - name: Upload actual Observed preview, pass or fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: I1-Observed-Work-UR3e-SusGrip
+          name: I1-Observed-Intent-Work-ManiCast
           path: outputs/work_i1/
           if-no-files-found: warn
           retention-days: 7
