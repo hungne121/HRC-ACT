@@ -45,13 +45,16 @@ jobs:
       - name: Render Observed with original Work UR3e + SusGrip
         working-directory: work
         run: |
-          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0
-          xvfb-run -a python ../scripts/work_i1_observed.py --expert early --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --layout original --seed 300100 --out ../outputs/i1_original_control --speedup 1.0
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert observed --robot-profile optimized --seed 300100 --out ../outputs/work_i1 --speedup 1.0 --layout row
+          xvfb-run -a python ../scripts/work_i1_observed.py --expert early --robot-profile optimized --layout row --seed 300100 --out ../outputs/work_i1 --speedup 1.0
       - name: Upload actual Observed preview, pass or fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: I1-Observed-Intent-Work-ManiCast
-          path: outputs/work_i1/
+          path: |
+            outputs/work_i1/
+            outputs/i1_original_control/
           if-no-files-found: warn
           retention-days: 7
