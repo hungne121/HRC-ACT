@@ -21,9 +21,9 @@ def make_dataset(path:Path,fps:int):
         repo_id="local/i1-preview",root=path,fps=fps,
         robot_type="simulated_3dof",use_videos=True,
         features={
-            "observation.state":{"dtype":"float32","shape":(6,),
-                                 "names":["yaw","shoulder","elbow","yaw_v","shoulder_v","elbow_v"]},
-            "action":{"dtype":"float32","shape":(3,),"names":["yaw","shoulder","elbow"]},
+            "observation.state":{"dtype":"float32","shape":(8,),
+                                 "names":["yaw","shoulder","elbow","wrist_pitch","yaw_v","shoulder_v","elbow_v","wrist_pitch_v"]},
+            "action":{"dtype":"float32","shape":(4,),"names":["yaw","shoulder","elbow","wrist_pitch"]},
             "observation.images.overview":{"dtype":"video","shape":(640,960,3),
                                             "names":["height","width","channel"]},
         },
@@ -62,7 +62,7 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
         events.append({"event":name,"t":round(float(t),3),**kw})
 
     def move(xyz):
-        planner.target(scene.data.time,scene.data.qpos[:3],xyz)
+        planner.target(scene.data.time,scene.data.qpos[:4],xyz)
 
     def transition(to,t):
         nonlocal state,state_enter
@@ -88,9 +88,9 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                     if moving and not human_was_moving:
                         event("human_motion_onset",t)
                     human_was_moving=moving
-                    q,done=planner.sample(t,scene.data.qpos[:3])
+                    q,done=planner.sample(t,scene.data.qpos[:4])
                     # Use measured position for posture convergence, not just timeline.
-                    settled=bool(done and np.max(np.abs(scene.data.qpos[:3]-planner.end))<.09)
+                    settled=bool(done and np.max(np.abs(scene.data.qpos[:4]-planner.end))<.09)
                     if state=="above_source" and settled:
                         move(SOURCE[current_cup]+np.array([0,0,CUP_H/2+.014]))
                         transition("descend_source",t)
@@ -202,12 +202,12 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                 rgb=renderer.render().copy()
                 video.append_data(rgb)
                 trace.append({"t":round(float(scene.data.time),3),
-                              "state":state,"q":scene.data.qpos[:3].round(5).tolist(),
+                              "state":state,"q":scene.data.qpos[:4].round(5).tolist(),
                               "action":np.asarray(q).round(5).tolist()})
                 if dataset is not None:
                     dataset.add_frame({
                         "task":"I1 place three cups on three human coasters",
-                        "observation.state":np.concatenate([scene.data.qpos[:3],scene.data.qvel[:3]]).astype(np.float32),
+                        "observation.state":np.concatenate([scene.data.qpos[:4],scene.data.qvel[:4]]).astype(np.float32),
                         "action":np.asarray(q,dtype=np.float32),
                         "observation.images.overview":rgb})
                 if state in ("complete","failed"):
