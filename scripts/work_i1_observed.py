@@ -76,6 +76,41 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
+    # Gripper choreography is demonstrated as real joint-target actions.
+    # OPEN_GRIPPER during cup release targets 79 mm, not 85 mm. 85 mm is
+    # restored only after the third cup and the arm has returned home.
+    from intent_policy.experts.scripted_expert import Step
+    original_grasp_steps = I1Expert._grasp_steps
+    original_home_steps = I1Expert._home_steps
+    work_open_m = 0.079
+    home_open_m = 0.085
+    def economical_grasp_steps(self, key):
+        steps = original_grasp_steps(self, key)
+        sc = self.sc
+        # CLOSE_GRIPPER to a small ready aperture immediately after cue onset;
+        # the real grasp later changes closed target to 0 mm and requires contact.
+        steps[0] = Step("grip", "close",
+            until=lambda: float(sc.env.data.qpos[sc.env.gid]) <= 0.080,
+            ticks=25, name="pre_shape_gripper")
+        return steps
+    def full_open_only_at_home(self):
+        base_steps = original_home_steps(self)
+        # Keep the full-open command after the home move, not during delivery.
+        return base_steps[:-1] + [
+            Step("call", target=lambda: self.mapper.cfg.gripper.__setitem__("open", home_open_m),
+                 name="select_rest_opening"),
+            Step("grip", "open",
+                 until=lambda: float(self.sc.env.data.qpos[self.sc.env.gid]) >= 0.083,
+                 ticks=35, name="open_wide_at_rest"),
+            base_steps[-1]]
+    I1Expert._grasp_steps = economical_grasp_steps
+    I1Expert._home_steps = full_open_only_at_home
+    prior_prep_act = I1Expert.act
+    def gripper_target_by_stage(self):
+        self.mapper.cfg.gripper["closed"] = (
+            work_open_m if self.stage == "pre_shape_gripper" else 0.0)
+        return prior_prep_act(self)
+    I1Expert.act = gripper_target_by_stage
     # Fixed, evenly spaced coaster targets (one straight row). The per-seed
     # permutation assigns each incoming coaster to left/centre/right once.
     # The expert NEVER reads this mapping; it still uses visible coaster
@@ -111,6 +146,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         # Use its own deterministic minimum-jerk scripted human instead.
         "human_behavior":{"motion_bank":None, **tempo_cfg}})
     controller=RestrictedActionConfig.load("configs/controller/continuous_motion.yaml")
+    controller.gripper["open"]=work_open_m
     obs_cfg=ObservationConfig(cameras=("high",),width=640,height=480)
     observed=[]
     carried_frames={}
@@ -120,6 +156,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     event_times={}
     hand_speeds=[]
     last_hand=None
+    gripper_stage_samples=[]
     video=out/f"I1_{expert}_{robot_profile}_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
@@ -127,6 +164,10 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         def record_frame(obs,decision,target,s):
             nonlocal last_stage, last_hand
             stage=decision.extras.get("expert_stage")
+            if stage in ("pre_shape_gripper","close","release","open_wide_at_rest"):
+                gripper_stage_samples.append({"t":round(float(s.time),2),"stage":stage,
+                    "width_m":round(float(s.env.data.qpos[s.env.gid]),5),
+                    "target_m":round(float(target[6]),5)})
             if stage!=last_stage:
                 stage_timeline.append({"t":round(float(s.time),3),"round":int(s.sequence_index),"stage":stage})
                 last_stage=stage
@@ -162,6 +203,9 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
              "robot_profile":robot_profile,
+             "gripper_work_open_m":work_open_m,
+             "gripper_rest_open_m":home_open_m,
+             "gripper_samples":gripper_stage_samples,
              "robot_speed_rule":"0.50m/s only robot prep and hand-TCP >0.40m; otherwise 0.39m/s" if robot_profile=="optimized" else "original 0.39m/s",
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
              "coaster_row":[{"slot":x,"xy_m":[v,y_row]} for x,v in zip(["left","middle","right"],x_slots)],
