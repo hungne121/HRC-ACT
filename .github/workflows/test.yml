@@ -30,6 +30,10 @@ jobs:
           repository: portal-cornell/manicast
           ref: release
           path: work/third_party/manicast
+          filter: blob:none
+          sparse-checkout: |
+            model
+            model_checkpoints/manicast
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
