@@ -20,12 +20,23 @@ from intent_policy.scenarios.scenario_registry import make_scenario
 from intent_policy.sim.restricted_action import RestrictedActionConfig
 
 
-def run(seed: int, out: Path, speedup: float = 1.0):
+def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed'):
     # Film cadence is 20 physical decision samples/sec. A playback speedup
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
     out.mkdir(parents=True,exist_ok=True)
-    # Reach cue unlocks preparation and grasp. Placement unlocks target travel.
+    if expert not in ("observed", "early"):
+        raise ValueError("expert must be observed or early")
+    # Public Cornell ManiCast checkpoint, not the absent Work fine-tune.
+    if expert == "early":
+        import pif.config
+        original_load = pif.config.load_config
+        def released_config(*args, **kwargs):
+            cfg = original_load(*args, **kwargs)
+            cfg["v6_expert"]["checkpoint_path"] = None
+            return cfg
+        pif.config.load_config = released_config
+    # Reach cue unlocks preparation and grasp.
     from intent_policy.experts.i1_expert import I1Expert
     from intent_policy.sim.restricted_action import RestrictedAction
     original_act = I1Expert.act
@@ -45,13 +56,13 @@ def run(seed: int, out: Path, speedup: float = 1.0):
         return original_act(self)
 
     def destination_after_place(self):
-        if "coaster_placed_" + self.coaster not in self.sc.protocol_done:
+        if expert == "observed" and "coaster_placed_" + self.coaster not in self.sc.protocol_done:
             return None
         return original_destination(self)
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
-    scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":"observed"},
+    scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":expert},
         # Generated HY-Motion clips were not checked into the old repository.
         # Use its own deterministic minimum-jerk scripted human instead.
         "human_behavior":{"motion_bank":None}})
@@ -60,7 +71,7 @@ def run(seed: int, out: Path, speedup: float = 1.0):
     observed=[]
     carried_frames={}
     weld_seen=set()
-    video=out/"I1_observed_work.mp4"
+    video=out/f"I1_{expert}_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
                             macro_block_size=1,quality=8) as writer:
@@ -85,7 +96,8 @@ def run(seed: int, out: Path, speedup: float = 1.0):
         assert required <= weld_seen, "No verified human weld: " + repr(required - weld_seen)
         assert all(carried_frames.get(k,0)>1 for k in required), "Human did not carry all coasters"
     summary={"scenario":"i1_coaster_sequence",
-             "expert":"observed","seed":seed,
+             "expert":expert,"seed":seed,
+             "forecast_source":"Cornell released ManiCast" if expert=="early" else "none",
              "work_source":"hungne121/intent_policy@428e8fcb9d7834eb6e6be98ab72b1ccf9c71ab3a",
              "robot":"UR3e 6-DOF + SusGrip physical fingers",
              "scene":"Work original MuJoCo MJCF and original I1 human motion",
@@ -95,13 +107,13 @@ def run(seed: int, out: Path, speedup: float = 1.0):
              "physics_duration_s":result.get("duration_s"),
              "preview_playback_factor":speedup,
              "preview_frame_count":len(observed),
-             "robot_start_rule":"reach cue -> prepare and lift; coaster placed -> move to destination",
+             "robot_start_rule":"reach cue -> prepare; forecast -> early approach" if expert=="early" else "reach cue -> prepare; coaster placed -> deliver",
              "human_carried_frames":carried_frames,
              "human_active_welds":sorted(weld_seen),
              "recorded_cadence_hz":20,
-             "video":"I1_observed_work.mp4",
+             "video":f"I1_{expert}_work.mp4",
              "note":"Playback speed does not change simulated physics or training actions"}
-    (out/"I1_observed_work.json").write_text(json.dumps(summary,indent=2,default=str))
+    (out/f"I1_{expert}_work.json").write_text(json.dumps(summary,indent=2,default=str))
     print(json.dumps(summary,indent=2,default=str),flush=True)
     if not result["success"]:
         raise SystemExit("Observed I1 failed; see JSON and video")
@@ -111,8 +123,9 @@ def main():
     p.add_argument("--seed",type=int,default=300100)
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--speedup",type=float,default=1.0)
+    p.add_argument("--expert",choices=["observed","early"],default="observed")
     a=p.parse_args()
     if not (1<=a.speedup<=1.5):raise ValueError("speedup must be 1..1.5")
-    run(a.seed,a.out,a.speedup)
+    run(a.seed,a.out,a.speedup,a.expert)
 
 if __name__=="__main__":main()
