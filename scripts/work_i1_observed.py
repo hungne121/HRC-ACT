@@ -118,6 +118,30 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
 
     I1Expert._standoff_point = dynamic_intent_target
     I1Expert._toward = continuous_intent_follow
+
+    # Observed must not perform a 10cm make-way retreat when the
+    # destination is unknown. Just hold the already-lifted cup at travel Z.
+    original_approach = I1Expert._approach_point
+    original_clear = I1Expert._placed_and_clear
+    def approach_without_empty_retreat(self):
+        if expert == "observed" and self._destination() is None:
+            self._make_way = None
+            return np.r_[self.mapper.setpoint[:2],self.travel]
+        return original_approach(self)
+
+    def clear_when_observed(self):
+        # Do not speculate about withdrawal and flip into transport while
+        # the real hand is still above a coaster. The initial attempt did
+        # approach -> transport -> approach in 0.1s due to this handoff.
+        if expert == "early":
+            return ("coaster_placed_"+self.coaster in self.sc.protocol_done
+                and float(np.linalg.norm(
+                    self.sc.human.pos[:2]-self.sc.zone_pos(self.zone)[:2]
+                )) >= 0.12)
+        return original_clear(self)
+
+    I1Expert._approach_point = approach_without_empty_retreat
+    I1Expert._placed_and_clear = clear_when_observed
     # The restricted action interface moves arm OR gripper, never both.
     # Convert the original expert's discrete plan into a *continuous 7D*
     # target so the gripper can change aperture simultaneously with TCP travel.
