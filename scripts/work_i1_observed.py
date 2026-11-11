@@ -76,41 +76,82 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
 
     I1Expert.act = act_after_reach_cue
     I1Expert._destination = destination_after_place
-    # Gripper choreography is demonstrated as real joint-target actions.
-    # OPEN_GRIPPER during cup release targets 79 mm, not 85 mm. 85 mm is
-    # restored only after the third cup and the arm has returned home.
+    # The restricted action interface moves arm OR gripper, never both.
+    # Convert the original expert's discrete plan into a *continuous 7D*
+    # target so the gripper can change aperture simultaneously with TCP travel.
+    # This supplies genuine synchronized demonstrations for ACT.
     from intent_policy.experts.scripted_expert import Step
+    from intent_policy.benchmark.runner import Decision
     original_grasp_steps = I1Expert._grasp_steps
     original_home_steps = I1Expert._home_steps
-    work_open_m = 0.079
-    home_open_m = 0.085
-    def economical_grasp_steps(self, key):
+    full_open_m = 0.085
+    cruise_open_m = 0.055     # visibly pre-shape in free space, away from cup
+    grasp_clear_m = 0.079     # cup outer diameter ~72mm + 7mm clearance
+
+    def fluid_grasp_steps(self, key):
         steps = original_grasp_steps(self, key)
-        sc = self.sc
-        # CLOSE_GRIPPER to a small ready aperture immediately after cue onset;
-        # the real grasp later changes closed target to 0 mm and requires contact.
-        steps[0] = Step("grip", "close",
-            until=lambda: float(sc.env.data.qpos[sc.env.gid]) <= 0.080,
-            ticks=25, name="pre_shape_gripper")
+        # No blocking gripper-only preparation phase: shape fingers
+        # while approaching. Keep a guard before descending onto the cup.
+        steps = steps[1:]
+        index=next(i for i,v in enumerate(steps) if v.name == "descend")
+        steps.insert(index, Step("wait",
+            until=lambda: float(self.sc.env.data.qpos[self.sc.env.gid]) >= 0.076,
+            name="verify_grasp_clearance"))
         return steps
-    def full_open_only_at_home(self):
-        base_steps = original_home_steps(self)
-        # Keep the full-open command after the home move, not during delivery.
-        return base_steps[:-1] + [
-            Step("call", target=lambda: self.mapper.cfg.gripper.__setitem__("open", home_open_m),
-                 name="select_rest_opening"),
-            Step("grip", "open",
-                 until=lambda: float(self.sc.env.data.qpos[self.sc.env.gid]) >= 0.083,
-                 ticks=35, name="open_wide_at_rest"),
-            base_steps[-1]]
-    I1Expert._grasp_steps = economical_grasp_steps
-    I1Expert._home_steps = full_open_only_at_home
-    prior_prep_act = I1Expert.act
-    def gripper_target_by_stage(self):
-        self.mapper.cfg.gripper["closed"] = (
-            work_open_m if self.stage == "pre_shape_gripper" else 0.0)
-        return prior_prep_act(self)
-    I1Expert.act = gripper_target_by_stage
+
+    def open_fully_only_at_rest(self):
+        tail = original_home_steps(self)
+        return tail[:-1] + [
+            Step("wait", until=lambda: float(self.sc.env.data.qpos[self.sc.env.gid]) >= 0.083,
+                 name="open_wide_at_rest"),
+            tail[-1]]
+
+    I1Expert._grasp_steps = fluid_grasp_steps
+    I1Expert._home_steps = open_fully_only_at_rest
+
+    class FluidExpertAgent(ExpertAgent):
+        action_mode = "continuous"
+
+        def reset(self, scenario, mapper):
+            super().reset(scenario, mapper)
+            self.mapper = mapper
+
+        def act(self, obs):
+            d = super().act(obs)
+            stage = self.expert.stage
+            command = self.mapper.map(d.action_id)
+            target = np.asarray(command.joint_target,dtype=float).copy()
+            if stage == "above_grasp":
+                obj = self.expert.obj
+                above=np.r_[self.expert.sc.grasp_point(obj)[:2], self.expert.travel]
+                remaining=float(np.linalg.norm(self.expert.sc.tcp() - above))
+                opening = cruise_open_m if remaining > 0.13 else grasp_clear_m
+            elif stage in ("settle_above_grasp","verify_grasp_clearance",
+                           "descend","settle_before_grasp"):
+                opening = grasp_clear_m
+            elif stage in ("close","settle_grasp","lift","approach_spot",
+                           "await_coaster","transport","lower","settle_before_release",
+                           "back_off"):
+                opening = 0.0
+            elif stage in ("open_wide_at_rest","done"):
+                opening = full_open_m
+            else:
+                # Following a release, preserve working aperture rather than
+                # opening to rest. For later rounds pre-shape on the next reach.
+                opening = grasp_clear_m
+            # Never open while holding a cup, including stages overwritten
+            # by the planner's safety / retreat logic.
+            if any(self.expert.sc.grasp_state.get(k,False) for k in ("C1","C2","C3")):
+                opening=0.0
+            target[6] = opening
+            self.mapper.gripper_target = opening
+            return Decision(joint_target=target, extras={
+                **d.extras,"gripper_stage":stage,"gripper_target_m":opening,
+                "arm_action_id":d.action_id})
+
+        def describe(self):
+            return dict(type="fluid_scripted_expert",action_mode="continuous",
+                        gripper_target_in_7d=True,training_demos=True)
     # Fixed, evenly spaced coaster targets (one straight row). The per-seed
     # permutation assigns each incoming coaster to left/centre/right once.
     # The expert NEVER reads this mapping; it still uses visible coaster
@@ -148,7 +189,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         # Use its own deterministic minimum-jerk scripted human instead.
         "human_behavior":{"motion_bank":None, **tempo_cfg}})
     controller=RestrictedActionConfig.load("configs/controller/continuous_motion.yaml")
-    controller.gripper["open"]=work_open_m
+    controller.gripper["open"]=grasp_clear_m
     obs_cfg=ObservationConfig(cameras=("high",),width=640,height=480)
     observed=[]
     carried_frames={}
@@ -170,8 +211,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
                             macro_block_size=1,quality=8) as writer:
         def record_frame(obs,decision,target,s):
             nonlocal last_stage, last_hand
-            stage=decision.extras.get("expert_stage")
-            if stage in ("pre_shape_gripper","close","release","open_wide_at_rest"):
+            stage=decision.extras.get("gripper_stage",decision.extras.get("expert_stage"))
+            if stage in ("above_grasp","verify_grasp_clearance","close","release","open_wide_at_rest"):
                 gripper_stage_samples.append({"t":round(float(s.time),2),"stage":stage,
                     "width_m":round(float(s.env.data.qpos[s.env.gid]),5),
                     "target_m":round(float(target[6]),5)})
@@ -206,7 +247,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
             writer.append_data(frame)
             observed.append(float(s.time))
         try:
-            result=run_episode(scene,ExpertAgent(),seed,controller,
+            result=run_episode(scene,FluidExpertAgent(),seed,controller,
                                obs_cfg=obs_cfg,on_frame=record_frame,
                                keep_trace=False)
         finally:
@@ -233,8 +274,10 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "expert":expert,"seed":seed,
              "robot_profile":robot_profile,
              "coaster_layout":layout,
-             "gripper_work_open_m":work_open_m,
-             "gripper_rest_open_m":home_open_m,
+             "gripper_cruise_open_m":cruise_open_m,
+             "gripper_grasp_clear_m":grasp_clear_m,
+             "gripper_rest_open_m":full_open_m,
+             "gripper_simultaneous_arm_motion":True,
              "gripper_samples":gripper_stage_samples,
              "demonstration_npz":demo_file.name if demo_file else None,
              "demonstration_format":"observation_state[T,10], observation_images_high[T,96,128,3], action[T,7] (joint targets), expert_stage[T] diagnostic only",
