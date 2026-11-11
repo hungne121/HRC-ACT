@@ -30,7 +30,8 @@ class JointPlanner:
         # elbow-up configuration: shoulder stays above workspace
         elbow=-np.arccos(c)
         shoulder=np.arctan2(z,r)-np.arctan2(L2*np.sin(elbow),L1+L2*np.cos(elbow))
-        q=np.array([yaw,shoulder,elbow])
+        wrist=-(shoulder+elbow)  # world-level grasp frame: cup stays vertical
+        q=np.array([yaw,shoulder,elbow,wrist])
         if not np.isfinite(q).all(): raise ValueError("Invalid IK")
         return q
 
