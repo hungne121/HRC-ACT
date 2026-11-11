@@ -29,4 +29,4 @@
 Existing `src/hrc_act/sim.py` has no cups/coasters or gripper. `run.py` has no pickup or release, and `--demo-forecast` is synthetic, not ManiCast. These must be replaced, not promoted as complete I1. CI unit tests only verify generic helpers. The local environment used for this review lacks MuJoCo / LeRobot and cannot install packages (network unavailable), therefore neither physically valid preview nor video has been generated or verified.
 
 ## Source-of-truth
-`specs/source/I1_OBSERVED.md`, `specs/source/I1_INTENT.md`, and `specs/source/RULES_AND_INTERFACES.md` are exact supplied V2 material. If an ambiguity arises, preserve task requirements and mark the engineering assumption explicitly.
+The user-supplied `HRI_TASK_SPECS_V2(1).zip` (2026-11-10), especially `01_INSTRUCTOR/I1_OBSERVED.md`, `01_INSTRUCTOR/I1_INTENT.md` and `00_COMMON/01_RULES_AND_INTERFACES.md`, is the governing source. It is currently available as a conversation upload, **not yet checked into the repository**. Preserve all task requirements and flag engineering assumptions explicitly.
