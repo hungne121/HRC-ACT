@@ -23,7 +23,7 @@ NPZ keys: `times` shape (N,) seconds **relative to prediction instant**, strictl
 
 ## Planner
 
-One planner for both experts: Cartesian target -> damped least-squares inverse kinematics -> joint-space minimum-jerk quintic trajectory with bounded speed, velocity continuity on replans and no per-task motion rules. Conservative target workspace clipping; not a certified collision-free planner. Targets are in a fixed vertical planar workspace.
+One planner for both experts: Cartesian target -> damped least-squares inverse kinematics -> joint-space minimum-jerk quintic trajectory with bounded speed, zero endpoint velocity (online replanning not implemented) and no per-task motion rules. Conservative target workspace clipping; not a certified collision-free planner. Targets are in a fixed vertical planar workspace.
 
 Observed waits for measured wrist to reach a readiness threshold, then plans to that position. Intent can plan earlier from the external future position and falls back to observed if no credible forecast. Both use the same robot initial pose, controller, and camera.
 
