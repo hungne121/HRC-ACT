@@ -23,19 +23,20 @@ def test_clip_all_three_placed():
 
 def test_common_motion_planner_has_zero_endpoint_speed():
     p=JointPlanner()
-    p.target(0.,[0,0,0],[.4,.15,.7])
+    p.target(0.,[0,0,0,0],[.4,.15,.7])
     assert p.duration>=.65
-    q0,done=p.sample(0.,[0,0,0])
-    np.testing.assert_allclose(q0,[0,0,0])
+    q0,done=p.sample(0.,[0,0,0,0])
+    np.testing.assert_allclose(q0,[0,0,0,0])
     assert not done
-    q1,done=p.sample(p.duration,[0,0,0])
+    q1,done=p.sample(p.duration,[0,0,0,0])
     np.testing.assert_allclose(q1,p.end)
     assert done
 
 def test_ik_forward_kinematics():
     p=JointPlanner()
     target=np.array([.48,.19,.68])
-    yaw,shoulder,elbow=p.ik(target)
+    yaw,shoulder,elbow,wrist=p.ik(target)
+    assert abs(shoulder+elbow+wrist)<1e-10
     from hrc_act.i1_scene import BASE,L1,L2
     radial=L1*np.cos(shoulder)+L2*np.cos(shoulder+elbow)
     z=L1*np.sin(shoulder)+L2*np.sin(shoulder+elbow)
