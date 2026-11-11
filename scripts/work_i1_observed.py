@@ -143,7 +143,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
                 opening = grasp_clear_m
             # Never open while holding a cup, including stages overwritten
             # by the planner's safety / retreat logic.
-            if any(self.expert.sc.grasp_state.get(k,False) for k in ("C1","C2","C3")):
+            if stage != "release" and any(self.expert.sc.grasp_state.get(k,False) for k in ("C1","C2","C3")):
                 opening=0.0
             target[6] = opening
             self.mapper.gripper_target = opening
