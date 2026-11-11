@@ -176,13 +176,19 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                             event("episode_end",t)
                             transition("complete",t)
                         else:
-                            current_cup+=1
-                            next_pos=SOURCE[current_cup]+np.array([0,0,.23])
-                            move(next_pos)
-                            event("prep_onset",t,cup=current_cup)
-                            candidate_coaster=None
-                            target_xy=None
-                            transition("above_source",t)
+                            # Lift away from the newly placed cup before traversing
+                            # back across the table. Never sweep sideways while low.
+                            tip=scene.tip()
+                            move([tip[0],tip[1],TABLE_Z+.30])
+                            transition("retract",t)
+                    elif state=="retract" and settled:
+                        current_cup+=1
+                        next_pos=SOURCE[current_cup]+np.array([0,0,.23])
+                        move(next_pos)
+                        event("prep_onset",t,cup=current_cup)
+                        candidate_coaster=None
+                        target_xy=None
+                        transition("above_source",t)
                     # collision depth is recorded; only target release gate uses a strict hold.
                     for c in scene.data.contact:
                         depth=max(0.,-float(c.dist))
