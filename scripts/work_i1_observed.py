@@ -25,20 +25,32 @@ def run(seed: int, out: Path, speedup: float = 1.0):
     # affects ONLY the preview MP4 timestamps, never simulator timing, safety
     # distance, controller speed limits, or demonstration labels.
     out.mkdir(parents=True,exist_ok=True)
-    # Observed preview rule: keep the UR3e arm completely stationary until
-    # the human has physically released the current coaster onto the table.
-    # Applies at EACH of the three rounds. Do not change human motion timing.
+    # Reach cue unlocks preparation and grasp. Placement unlocks target travel.
     from intent_policy.experts.i1_expert import I1Expert
     from intent_policy.sim.restricted_action import RestrictedAction
     original_act = I1Expert.act
+    original_destination = I1Expert._destination
 
-    def act_only_after_coaster_placed(self):
-        current = "coaster_placed_" + self.coaster
-        if current not in self.sc.protocol_done:
+    def reached_for_this_coaster(self):
+        idx = self.sc.sequence_index
+        return any(
+            e["event_type"] == "human_cue_onset"
+            and int((e.get("payload") or {}).get("round", 0)) == idx
+            for e in self.sc.get_events()
+        )
+
+    def act_after_reach_cue(self):
+        if not reached_for_this_coaster(self):
             return int(RestrictedAction.HOLD)
         return original_act(self)
 
-    I1Expert.act = act_only_after_coaster_placed
+    def destination_after_place(self):
+        if "coaster_placed_" + self.coaster not in self.sc.protocol_done:
+            return None
+        return original_destination(self)
+
+    I1Expert.act = act_after_reach_cue
+    I1Expert._destination = destination_after_place
     scene=make_scenario("i1_coaster_sequence", {"expert":{"rule":"observed"},
         # Generated HY-Motion clips were not checked into the old repository.
         # Use its own deterministic minimum-jerk scripted human instead.
@@ -46,11 +58,19 @@ def run(seed: int, out: Path, speedup: float = 1.0):
     controller=RestrictedActionConfig.load("configs/controller/continuous_motion.yaml")
     obs_cfg=ObservationConfig(cameras=("high",),width=640,height=480)
     observed=[]
+    carried_frames={}
+    weld_seen=set()
     video=out/"I1_observed_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
                             macro_block_size=1,quality=8) as writer:
         def record_frame(obs,decision,target,s):
+            for item in s.rounds:
+                key = item["coaster"]
+                if s.human.holding == key:
+                    carried_frames[key] = carried_frames.get(key, 0) + 1
+                    if s.env.data.eq_active[s.weld_id[key]]:
+                        weld_seen.add(key)
             frame=np.asarray(obs["observation.images.high"],dtype=np.uint8)
             writer.append_data(frame)
             observed.append(float(s.time))
@@ -60,6 +80,10 @@ def run(seed: int, out: Path, speedup: float = 1.0):
                                keep_trace=False)
         finally:
             scene.close()
+    if result["success"]:
+        required={item["coaster"] for item in scene.rounds}
+        assert required <= weld_seen, "No verified human weld: " + repr(required - weld_seen)
+        assert all(carried_frames.get(k,0)>1 for k in required), "Human did not carry all coasters"
     summary={"scenario":"i1_coaster_sequence",
              "expert":"observed","seed":seed,
              "work_source":"hungne121/intent_policy@428e8fcb9d7834eb6e6be98ab72b1ccf9c71ab3a",
@@ -71,7 +95,9 @@ def run(seed: int, out: Path, speedup: float = 1.0):
              "physics_duration_s":result.get("duration_s"),
              "preview_playback_factor":speedup,
              "preview_frame_count":len(observed),
-             "robot_start_rule":"hold all arm motion until current coaster is placed",
+             "robot_start_rule":"reach cue -> prepare and lift; coaster placed -> move to destination",
+             "human_carried_frames":carried_frames,
+             "human_active_welds":sorted(weld_seen),
              "recorded_cadence_hz":20,
              "video":"I1_observed_work.mp4",
              "note":"Playback speed does not change simulated physics or training actions"}
