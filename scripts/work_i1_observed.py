@@ -78,11 +78,31 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     observed=[]
     carried_frames={}
     weld_seen=set()
+    stage_timeline=[]
+    last_stage=None
+    event_times={}
+    hand_speeds=[]
+    last_hand=None
     video=out/f"I1_{expert}_work.mp4"
     # One large fixed high camera; images are RGB, not keypoint overlays.
     with imageio.get_writer(video,fps=round(20*speedup),codec="libx264",
                             macro_block_size=1,quality=8) as writer:
         def record_frame(obs,decision,target,s):
+            nonlocal last_stage, last_hand
+            stage=decision.extras.get("expert_stage")
+            if stage!=last_stage:
+                stage_timeline.append({"t":round(float(s.time),3),"round":int(s.sequence_index),"stage":stage})
+                last_stage=stage
+            for e in s.get_events():
+                typ=e["event_type"]
+                val=e.get("payload") or {}
+                if typ in ("human_cue_onset","object_grasp","object_release","protocol_step_complete"):
+                    key=f"{typ}/{val.get('step',val.get('object',''))}/{val.get('actor','')}"
+                    event_times.setdefault(key,round(float(e["timestamp"]),3))
+            hand=np.asarray(s.human.pos,float)
+            if last_hand is not None:
+                hand_speeds.append(float(np.linalg.norm(hand-last_hand)/s.dt))
+            last_hand=hand.copy()
             for item in s.rounds:
                 key = item["coaster"]
                 if s.human.holding == key:
@@ -105,6 +125,9 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
     summary={"scenario":"i1_coaster_sequence",
              "expert":expert,"seed":seed,
              "human_tempo":tempo,"human_tempo_config":tempo_cfg,
+             "human_hand_speed_p95_mps":round(float(np.percentile(hand_speeds,95)),3) if hand_speeds else None,
+             "human_hand_speed_p50_mps":round(float(np.percentile(hand_speeds,50)),3) if hand_speeds else None,
+             "stage_timeline":stage_timeline,"event_times":event_times,
              "forecast_source":"Cornell released ManiCast" if expert=="early" else "none",
              "work_source":"hungne121/intent_policy@428e8fcb9d7834eb6e6be98ab72b1ccf9c71ab3a",
              "robot":"UR3e 6-DOF + SusGrip physical fingers",
