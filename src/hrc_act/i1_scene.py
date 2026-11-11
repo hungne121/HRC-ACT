@@ -98,7 +98,7 @@ def scene_xml():
                 rgba="{.2+.2*i} {.44+.1*i} {.65-.1*i} 1"
                 contype="1" conaffinity="1" friction="1 0.01 0.001"/>
         </body>""")
-        welds.append(f'<weld name="grasp{i}" body1="gripper" body2="cup{i}" active="false" relpose="0 0 0 1 0 0 0" solref="0.006 1"/>')
+        welds.append(f'<weld name="grasp{i}" body1="gripper" body2="cup{i}" active="false" relpose="0 0 0 1 0 0 0" solref="0.03 1"/>')
     return f"""
 <mujoco model="I1_V2">
   <compiler angle="radian" inertiafromgeom="true"/>
@@ -190,8 +190,12 @@ class I1Scene:
         mujoco.mju_rotVecQuat(rel,self.data.xpos[b2]-self.data.xpos[b1],qi)
         qr=np.zeros(4)
         mujoco.mju_mulQuat(qr,qi,q2)
-        self.model.eq_data[self.weld_ids[i],:3]=rel
-        self.model.eq_data[self.weld_ids[i],3:7]=qr
+        # MuJoCo weld eq_data layout: anchor [0:3], relative translation
+        # [3:6], relative quaternion [6:10], torque scale [10].
+        self.model.eq_data[self.weld_ids[i],:3]=0
+        self.model.eq_data[self.weld_ids[i],3:6]=rel
+        self.model.eq_data[self.weld_ids[i],6:10]=qr
+        self.model.eq_data[self.weld_ids[i],10]=0.15
         self.data.eq_active[self.weld_ids[i]]=1
         self.held=i
         mujoco.mj_forward(self.model,self.data)
