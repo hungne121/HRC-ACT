@@ -65,8 +65,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
                 "close", "settle_grasp", "lift")
             self.mapper.cfg.continuous["tcp_speed"] = (
                 0.50 if prep and clearance > 0.40 else 0.39)
-        if not reached_for_this_coaster(self):
-            return int(RestrictedAction.HOLD)
+        # Cup selection is protocol-known, not the unknown coaster destination.
+        # Both experts may pregrasp immediately while the human remains still.
         return original_act(self)
 
     def destination_after_place(self):
@@ -163,9 +163,7 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
             stage = self.expert.stage
             command = self.mapper.map(d.action_id)
             target = np.asarray(command.joint_target,dtype=float).copy()
-            if stage == "above_grasp" and not reached_for_this_coaster(self.expert):
-                opening = full_open_m if self.expert.sc.sequence_index == 0 else grasp_clear_m
-            elif stage == "above_grasp":
+            if stage == "above_grasp":
                 obj = self.expert.obj
                 above=np.r_[self.expert.sc.grasp_point(obj)[:2], self.expert.travel]
                 remaining=float(np.linalg.norm(self.expert.sc.tcp() - above))
@@ -222,6 +220,73 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
         return variation
 
     CoasterSequenceTask.sample_episode_variation = sample_row_variation
+
+    # The human begins with three separate physical coasters attached to one
+    # moving palm (stacked with 8mm pitch). Each has an independent MuJoCo
+    # weld that is released only in its own round. No teleportation on take.
+    import mujoco
+    from intent_policy.scenarios.i1_coaster_sequence import SequentialCoasterHuman
+    from intent_policy.sim.scripted_human import Gesture
+    original_on_reset = CoasterSequenceTask.on_reset
+    original_human_put = SequentialCoasterHuman._put
+    still_range_s = (2.6, 3.6)
+
+    def on_reset_with_stack(self):
+        original_on_reset(self)
+        human=self.human
+        human.rest=np.array([0.49,-0.40,0.76],float)
+        human.pos=human.rest.copy()
+        human.shape="grasp"
+        human.holding=self.rounds[0]["coaster"]
+        self._apply_human_pose()
+        mujoco.mj_forward(self.env.model,self.env.data)
+        for i,item in enumerate(self.rounds):
+            key=item["coaster"]
+            adr=self.qadr[key]
+            z=human.pos[2]-0.042+(len(self.rounds)-1-i)*0.008
+            self.env.data.qpos[adr:adr+3]=[human.pos[0],human.pos[1]+0.015,z]
+            self.env.data.qpos[adr+3:adr+7]=[1,0,0,0]
+        mujoco.mj_forward(self.env.model,self.env.data)
+        for item in self.rounds:
+            self.attach_to_hand(item["coaster"])
+        mujoco.mj_forward(self.env.model,self.env.data)
+        for item in self.rounds:
+            self.start_pos[item["coaster"]]=self.pos(item["coaster"]).copy()
+        self.initial_still_s=float(np.random.default_rng([int(self.seed),916]).uniform(*still_range_s))
+        human.initial_still_s=self.initial_still_s
+
+    def put_and_hold_next(self,t,ctx):
+        original_human_put(self,t,ctx)
+        if self.human_round+1 < len(self.rounds):
+            self.holding=self.rounds[self.human_round+1]["coaster"]
+
+    def stacked_placing(self):
+        p,b=self.params,self.behavior
+        c=self.coaster
+        put=lambda ctx: np.r_[self.spot_xy(ctx),
+            ctx["table_top_z"]+ctx["object_half_height"][c]+0.001+self.grip_dz]
+        return [
+            Gesture("move","carry_coaster",target=lambda ctx: put(ctx)+[0,0,b["carry_height_m"]],
+                    duration=p["carry_s"],shape="grasp",key=lambda:self.selected_target),
+            Gesture("move","lower_coaster",target=put,duration=p["lower_s"],
+                    shape="grasp",key=lambda:self.selected_target),
+            self.G_call(self._put),
+            self.G_rest("withdraw",duration=p["rest_s"],shape="grasp"),
+            self.G_call(self._next_round)]
+
+    def stacked_human_behave(self,t,ctx):
+        if not self.started:
+            self.started=True
+            cue=lambda tt,c: self.emit("human_cue_onset",
+                    modality="human_place",round=self.human_round)
+            self.queue=[Gesture("sleep","initial_still",duration=self.initial_still_s,scale=False),
+                        self.G_call(cue)]+self.placing()
+        self.run_queue(t,ctx)
+
+    CoasterSequenceTask.on_reset = on_reset_with_stack
+    SequentialCoasterHuman._put = put_and_hold_next
+    SequentialCoasterHuman.placing = stacked_placing
+    SequentialCoasterHuman.behave = stacked_human_behave
     # Same sampled human phase timings for both policies, unchanged robot limits.
     tempo_cfg = {
         "original": {},
@@ -318,6 +383,8 @@ def run(seed: int, out: Path, speedup: float = 1.0, expert: str = 'observed', te
              "expert":expert,"seed":seed,
              "robot_profile":robot_profile,
              "coaster_layout":layout,
+             "initial_human_still_s":getattr(scene,"initial_still_s",None),
+             "human_initial_coasters":"3 physically welded coasters stacked in one hand",
              "gripper_cruise_open_m":cruise_open_m,
              "gripper_grasp_clear_m":grasp_clear_m,
              "gripper_rest_open_m":full_open_m,
