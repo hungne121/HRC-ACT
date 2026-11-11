@@ -1,11 +1,12 @@
 name: I1 V2 preview and tests
 on:
-  push:
-    branches:
-      - feat/i1-clean-foundation
   pull_request:
     branches:
       - main
+
+concurrency:
+  group: i1-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   preview:
@@ -21,8 +22,6 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 ffmpeg
           python -m pip install --upgrade pip
           python -m pip install -e '.[test]'
       - name: Run unit tests and scene smoke tests
