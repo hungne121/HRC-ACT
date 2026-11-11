@@ -1,34 +1,42 @@
-# HRC-ACT · I1 clean foundation
+# HRC-ACT — I1 Preview (V2)
 
-A new I1-only prototype: MuJoCo simulation; a shared minimum-jerk joint-space planner; two experts with identical dynamics, task and camera; and LeRobot dataset + standalone MP4 recording. No code inherited from `hri_new` or `v11_current`.
+This is a **new clean-room implementation** of I1 from the user-approved `HRI_TASK_SPECS_V2` (10 November 2026). No code from `hri_new` or `v11_current` is inherited. Only **I1 nominal** is implemented; do not begin I2 or other tasks before preview review.
 
-**Scope/limitations:** This is a *minimal simulated reaching/handoff readiness* task, not a validated pick-and-place or a complete human robot collaboration benchmark. Robot uses a 2-DOF planar arm with position actuators. Human hand is a kinematic mocap proxy. No grasp, object transfer, force control, learned ACT policy or task-success benchmark is claimed. The Intent expert **requires externally supplied ManiCast trajectories**; `--demo-forecast` is explicitly synthetic smoke-test data, **not** ManiCast. Do not treat synthetic forecast results as experimental evidence.
+## What is implemented
 
-## Install
+- A MuJoCo table scene containing **3 distinct physical cups** and **3 distinct coasters**; an articulated 3-DOF robot arm and a kinematic human hand/coaster demonstration.
+- Seeded deterministic human clip with varied coaster order/positions, identical for Observed and Intent.
+- Shared joint-space quintic trajectory planner and IK, source-cup preparation for both experts, pick with switchable MuJoCo weld, transport, placement readiness check, release and state/event/penetration logs.
+- Observed uses only currently visible coaster positions. Intent uses only a causal wrist history through the current instant.
+- Two videos with the *same fixed overview camera*: `I1_observed.mp4` and `I1_intent.mp4`, plus JSON traces per run.
+- Optional LeRobot episode dataset/video recording, and GitHub Actions paired preview artifact.
+
+**Critical research limitation**: The Intent preview uses causal linear extrapolation as a **test surrogate**. It is **not ManiCast**. The actual network, trained checkpoint, coordinate transform and complete ten-step bi-arm forecast are **not integrated**; onset differences from these preview videos are **not experimental ManiCast→ACT claims**. Robot gripper is a suction-like weld attachment model, not a realistic parallel-jaw grasp. Human body and coasters are kinematic proxies, not fully simulated biomechanics.
+
+## Run a preview
+
+```bash
+python -m pip install -e '.[test]'
+MUJOCO_GL=egl hrc-i1 --expert paired --seed 300100 --out outputs/I1 --fps 10 --skip-dataset
+```
+
+Output includes separate MP4s and machine-readable event traces. To record LeRobot demonstrations:
 
 ```bash
 python -m pip install -e '.[record,test]'
-MUJOCO_GL=egl hrc-i1 --expert observed --out outputs/observed
-MUJOCO_GL=egl hrc-i1 --expert intent --forecast path/to/manicast_prediction.npz --out outputs/intent
-pytest -q
+MUJOCO_GL=egl hrc-i1 --expert paired --seed 300100 --out outputs/I1_record --fps 10
 ```
 
-For a quick rendering/pipeline smoke test without ManiCast: `MUJOCO_GL=egl hrc-i1 --expert intent --demo-forecast --out outputs/intent_demo`.
+## Test
 
-Each run saves `overview.mp4`, `metrics.json` and an episode in `dataset/` using LeRobot v3 with a video feature. To compare experts fairly, run the same seed, frame rate and human trajectory. Each mode writes independently; never reuse one episode file for both modes.
+```bash
+MUJOCO_GL=egl pytest -q
+```
 
-## ManiCast forecast contract
+The GitHub Actions workflow runs scene tests, renders the two MP4s and **fails** if both experts don't place all three cups. Download the `I1-seed-300100-preview` artifact from the latest successful workflow run to review videos and event logs.
 
-NPZ keys: `times` shape (N,) seconds **relative to prediction instant**, strictly increasing and positive, and `positions` shape (N,3) in **MuJoCo world coordinates/meters**, representing predicted *human right wrist positions*. Recommended sampling: 10 points at 0.1…1.0 s. A real ManiCast integration must perform the trained model's normalization, camera/world transform and confidence calibration upstream. This prototype deliberately does not silently invent a model/checkpoint. Intent uses the earliest sufficiently stable predicted wrist position as a goal cue; it does not yet exploit all 10 timesteps/multi-joint forecasts. Expanding the adapter is future work.
+## Status and boundaries
 
-## Planner
+This is a **preview for user review**, not a finished I1 expert/data-collection pipeline. Preview data cannot be used as scientific evidence until it passes the V2 acceptance criteria in `specs/I1_ACCEPTANCE.md`, including actual ManiCast, safety validation, paired trials across seeds and absence of privileged information. Collision penetration, place errors and task outcomes are reported in JSON to prevent a generated MP4 being mistaken for successful manipulation.
 
-One planner for both experts: Cartesian target -> damped least-squares inverse kinematics -> joint-space minimum-jerk quintic trajectory with bounded speed, zero endpoint velocity (online replanning not implemented) and no per-task motion rules. Conservative target workspace clipping; not a certified collision-free planner. Targets are in a fixed vertical planar workspace.
-
-Observed waits for measured wrist to reach a readiness threshold, then plans to that position. Intent can plan earlier from the external future position and falls back to observed if no credible forecast. Both use the same robot initial pose, controller, and camera.
-
-## Reproducibility / status
-
-`pytest` covers jerk endpoints, IK convergence and intent fallback. No physical feasibility validation, benchmark, genuine ManiCast inference or recorded MP4 artifacts are bundled in Git. LeRobot and offscreen video require ffmpeg and a functioning EGL/OSMesa backend; execution environment dependent.
-
-The `--forecast` NPZ is read once at episode start: this is a single prediction snapshot, **not** an online streaming predictor. Before reporting early-react gains, add timestamped online forecast updates, paired evaluation and safety/collision tests.
+Main branch is not modified by development; all implementation is under `feat/i1-clean-foundation` in draft PR #1.
