@@ -123,6 +123,7 @@ def scene_xml():
           <geom type="capsule" fromto="0 0 0 {L2} 0 0" size=".028" mass=".7"
                 rgba=".23 .55 .76 1"/>
           <body name="gripper" pos="{L2} 0 0">
+            <joint name="wrist_pitch" type="hinge" axis="0 -1 0" range="-3 3" limited="true" damping="1"/>
             <geom type="sphere" size=".032" mass=".08" rgba=".15 .75 .47 1"/>
             <site name="tip" size=".012"/>
           </body>
@@ -140,6 +141,7 @@ def scene_xml():
     <position joint="yaw" kp="110"/>
     <position joint="shoulder" kp="125"/>
     <position joint="elbow" kp="95"/>
+    <position joint="wrist_pitch" kp="75"/>
   </actuator>
   <equality>{''.join(welds)}</equality>
 </mujoco>"""
@@ -149,8 +151,8 @@ class I1Scene:
         self.clip=HumanClip.sample(seed)
         self.model=mujoco.MjModel.from_xml_string(scene_xml())
         self.data=mujoco.MjData(self.model)
-        self.data.qpos[:3] = [np.pi/2,1.1,-1.85]
-        self.data.ctrl[:3] = self.data.qpos[:3]
+        self.data.qpos[:4] = [np.pi/2,1.1,-1.85,0.75]
+        self.data.ctrl[:4] = self.data.qpos[:4]
         self.hand_mocap=self.model.body("human_hand").mocapid[0]
         self.coaster_mocap=[self.model.body(f"coaster{i}").mocapid[0] for i in range(3)]
         self.weld_ids=[self.model.equality(f"grasp{i}").id for i in range(3)]
@@ -211,5 +213,5 @@ class I1Scene:
 
     def step(self,q_cmd):
         self.advance_human(self.data.time)
-        self.data.ctrl[:3]=np.asarray(q_cmd)
+        self.data.ctrl[:4]=np.asarray(q_cmd)
         mujoco.mj_step(self.model,self.data)
