@@ -90,7 +90,7 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                     human_was_moving=moving
                     q,done=planner.sample(t,scene.data.qpos[:3])
                     # Use measured position for posture convergence, not just timeline.
-                    settled=bool(done and np.max(np.abs(scene.data.qpos[:3]-planner.end))<.025)
+                    settled=bool(done and np.max(np.abs(scene.data.qpos[:3]-planner.end))<.04)
                     if state=="above_source" and settled:
                         move(SOURCE[current_cup]+np.array([0,0,CUP_H/2+.014]))
                         transition("descend_source",t)
