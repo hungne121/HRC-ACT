@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrc-act"
+version = "0.1.0"
+description = "Clean-room I1 human-robot collaborative simulation"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26,<3", "mujoco>=3.2,<4", "imageio[ffmpeg]>=2.34"]
+
+[project.optional-dependencies]
+record = ["lerobot>=0.4"]
+test = ["pytest>=8"]
+
+[project.scripts]
+hrc-i1 = "hrc_act.run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
