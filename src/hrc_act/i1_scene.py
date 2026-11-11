@@ -14,8 +14,8 @@ import mujoco
 TABLE_Z = 0.405
 CUP_H = 0.075
 CUP_R = 0.025
-BASE = np.array([0.40, -0.45, 0.49], dtype=float)
-L1, L2 = 0.43, 0.40
+BASE = np.array([0.40, -0.58, 0.53], dtype=float)
+L1, L2 = 0.50, 0.46
 SOURCE = np.array([[0.22, -0.26, TABLE_Z + CUP_H/2],
                    [0.40, -0.26, TABLE_Z + CUP_H/2],
                    [0.58, -0.26, TABLE_Z + CUP_H/2]])
@@ -149,7 +149,7 @@ class I1Scene:
         self.clip=HumanClip.sample(seed)
         self.model=mujoco.MjModel.from_xml_string(scene_xml())
         self.data=mujoco.MjData(self.model)
-        self.data.qpos[:3] = [np.pi/2,-0.95,1.85]
+        self.data.qpos[:3] = [np.pi/2,1.1,-1.85]
         self.data.ctrl[:3] = self.data.qpos[:3]
         self.hand_mocap=self.model.body("human_hand").mocapid[0]
         self.coaster_mocap=[self.model.body(f"coaster{i}").mocapid[0] for i in range(3)]
