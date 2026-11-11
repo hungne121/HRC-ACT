@@ -98,7 +98,7 @@ def scene_xml():
                 rgba="{.2+.2*i} {.44+.1*i} {.65-.1*i} 1"
                 contype="1" conaffinity="1" friction="1 0.01 0.001"/>
         </body>""")
-        welds.append(f'<weld name="grasp{i}" body1="gripper" body2="cup{i}" active="false" solref="0.006 1"/>')
+        welds.append(f'<weld name="grasp{i}" body1="gripper" body2="cup{i}" active="false" relpose="0 0 0 1 0 0 0" solref="0.006 1"/>')
     return f"""
 <mujoco model="I1_V2">
   <compiler angle="radian" inertiafromgeom="true"/>
@@ -109,7 +109,7 @@ def scene_xml():
     <light pos="0.45 -.1 1.8" directional="false"/>
     <camera name="overview" pos="1.1 -1.6 1.45" xyaxes=".85 .52 0 -.30 .49 .82"/>
     <geom name="floor" type="plane" size="3 3 .1" rgba=".88 .9 .91 1"/>
-    <geom name="table" type="box" pos=".43 .04 .185" size=".55 .49 .22"
+    <geom name="table" type="box" pos=".43 .04 .21" size=".55 .49 .195"
           rgba=".58 .47 .39 1"/>
     <body name="robot" pos="{BASE[0]} {BASE[1]} {BASE[2]}">
       <geom type="cylinder" size=".09 .075" pos="0 0 -.06" mass="3" rgba=".28 .32 .4 1"/>
