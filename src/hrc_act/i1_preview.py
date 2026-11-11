@@ -90,13 +90,13 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                     human_was_moving=moving
                     q,done=planner.sample(t,scene.data.qpos[:3])
                     # Use measured position for posture convergence, not just timeline.
-                    settled=bool(done and np.max(np.abs(scene.data.qpos[:3]-planner.end))<.10)
+                    settled=bool(done and np.max(np.abs(scene.data.qpos[:3]-planner.end))<.025)
                     if state=="above_source" and settled:
                         move(SOURCE[current_cup]+np.array([0,0,CUP_H/2+.014]))
                         transition("descend_source",t)
                     elif state=="descend_source" and settled:
                         distance=np.linalg.norm(scene.tip()-(scene.cup_xyz(current_cup)+[0,0,CUP_H/2]))
-                        if distance<.085:
+                        if distance<.072 and np.linalg.norm(scene.tip()[:2]-scene.cup_xyz(current_cup)[:2])<.025:
                             scene.attach(current_cup)
                             event("grasp",t,cup=current_cup)
                             move(SOURCE[current_cup]+np.array([0,0,.25]))
@@ -126,17 +126,25 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                                 # Actual observed pose always overrides proxy forecast.
                                 target_xy=target[:2].copy()
                                 event("human_ready",t,coaster=candidate_coaster)
-                                move([target_xy[0],target_xy[1],TABLE_Z+.16])
+                                held_offset=scene.cup_xyz(current_cup)[:2]-scene.tip()[:2]
+                                grip_xy=target_xy-held_offset
+                                move([grip_xy[0],grip_xy[1],TABLE_Z+.16])
                                 transition("approach",t)
                     elif state=="approach" and settled:
                         if safe_to_place(scene,candidate_coaster,target_xy):
                             event("robot_ready",t,coaster=candidate_coaster)
-                            move([target_xy[0],target_xy[1],TABLE_Z+.007+CUP_H+.003])
+                            held_offset=scene.cup_xyz(current_cup)[:2]-scene.tip()[:2]
+                            grip_xy=target_xy-held_offset
+                            move([grip_xy[0],grip_xy[1],TABLE_Z+.014+CUP_H+.014])
                             transition("lower",t)
                         else:
                             safety_overrides+=1
                     elif state=="lower" and settled:
-                        if safe_to_place(scene,candidate_coaster,target_xy):
+                        cup=scene.cup_xyz(current_cup)
+                        goal=scene.data.mocap_pos[scene.coaster_mocap[candidate_coaster]]
+                        placement_height=TABLE_Z+.014+CUP_H/2
+                        if (safe_to_place(scene,candidate_coaster,cup)
+                            and abs(cup[2]-placement_height)<.022):
                             released=scene.release()
                             used_coasters.add(candidate_coaster)
                             placed.append((released,candidate_coaster))
@@ -144,6 +152,16 @@ def rollout(expert:str,seed:int,out:Path,fps:int=10,
                             transition("settle_cup",t)
                         else:
                             safety_overrides+=1
+                            # Correct the measured held-cup pose instead of
+                            # trusting the planned tool-tip target as ground truth.
+                            error=goal[:2]-cup[:2]
+                            if np.linalg.norm(error)<.10:
+                                tip=scene.tip()
+                                move([tip[0]+error[0],tip[1]+error[1],
+                                      TABLE_Z+.014+CUP_H+.014+(placement_height-cup[2])])
+                            else:
+                                event("unsafe_alignment",t,error=float(np.linalg.norm(error)))
+                                transition("failed",t)
                     elif state=="settle_cup" and t-state_enter>.45:
                         i,j=placed[-1]
                         cup=scene.cup_xyz(i)
