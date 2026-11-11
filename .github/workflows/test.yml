@@ -29,6 +29,16 @@ jobs:
         run: python -m pytest -q
       - name: Render paired I1 preview MP4s
         run: hrc-i1 --expert paired --seed 300100 --out outputs/I1 --fps 10 --max-seconds 65 --skip-dataset
+      - name: Require both physical placement outcomes 3/3
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for expert in ('observed','intent'):
+              d=json.loads(Path(f'outputs/I1/I1_{expert}.json').read_text())
+              print(expert, 'state:', d['state'], 'placed:', d['placed'], 'deepest contact:', d['worst_contact'])
+              assert d['success'] and len(d['placed'])==3, f'{expert} did not place 3 cups'
+          PY
       - name: Upload two preview videos and event traces
         if: always()
         uses: actions/upload-artifact@v4
